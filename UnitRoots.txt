@@ -1,0 +1,221 @@
+
+require(tseries)
+require(lmtest)
+require(fUnitRoots)
+#programy wymagaj¹ posiadania w folderze "library" powy¿szych pakietów
+
+
+lgoldre<-read.csv2("C:/Users/Olks/Desktop/Z£OTO/dane/lgoldre.csv")
+loilre<-read.csv2("C:/Users/Olks/Desktop/Z£OTO/dane/loilre.csv")
+#import danych do R
+
+
+lgoldre<-ts(lgoldre)
+loilre<-ts(loilre)
+#zmiana formatu danych na "ts" - time series
+
+
+UnitRoot <- function(n,m) {
+#funkcja przeprowadza ADF dla szeregu "n" skróconego o "m" miesiêcy
+
+if(m>3){m<-(m-3)} else {m<-0}	
+#pierwsze 4 wartoœci bêd¹ takie same - w celu u³atwieia porównañ z Grelt'em
+
+n0<-n[(m+5):length(n)]         
+n1<-n[(m+4):(length(n)-1)]	
+n2<-n[(m+3):(length(n)-2)]    
+n3<-n[(m+2):(length(n)-3)]
+n4<-n[(m+1):(length(n)-4)]
+#"n0" to nowy, krótszy szereg, a kolejne to opóŸnienia
+
+dn <-(n0-n1)			
+dn2<-(n1-n2)			
+dn3<-(n2-n3)
+dn4<-(n3-n4)
+#ró¿nice
+	
+t<-c(1:length(dn))
+#trend o tej samej d³ugoœci co wczeœniejsze szeregi
+#ale nie musi byæ akurat "dn"
+
+regresja<-lm(dn~t+n1+dn2+dn3+dn4)
+#regresja dla zró¿nicowanych 
+#trzech opóŸnieñ (dn2, dn3, dn4)-nie dla 4-ech! 
+#wyraz wolny dodawany jest domyœlnie
+
+fi<-summary(regresja)$coef[3,3]
+#"ro" to statystyka t dla pierwszego opóŸnienia 
+#czyli dla "n1" - potrzebna do "pv"
+
+pv<-punitroot(ro,N=length(t),trend="ct",statistic="t")
+#p-value dla wczeœniej obliczonej t-stat - "ro"
+
+reszty<-resid(regresja)
+reszty<-ts(reszty)
+reszty1<-reszty[1:(length(reszty)-1)]
+reszty2<-reszty[2:length(reszty)]
+cr<-cor(reszty2,reszty1)
+#autokorelacja reszt modelu
+
+tabela<-data.frame(tADF=fi, pvADF=pv, autoRes=cr,size=(length(n)-(4+m)),lags=3)
+return(tabela)   }
+#funkcja zwróci kolejno: t-stat w ADF, p-value w ADF, autokorelacje reszt,
+#wielkoœæ próby, d³ugoœæ opóŸneinia
+
+
+
+UnitRoots<-function(n) {			
+#n-szereg czasowy
+
+a<-UnitRoot(n,0)	
+#pierwsze liczenie przed pêtl¹
+
+tabela<-data.frame(a)	 
+#data.frame musi byc stworzona przed pêtl¹
+
+for(p in 1:373){		
+#pêtla powtarza dopóki p jest mniejsze ni¿ d³ugoœæ szeregu
+
+b<-UnitRoot(n,p) 	
+#liczy nowe wartoœci i zapisuje do macirzy b
+
+tabela<-rbind(tabela,b)} 
+#dopisuje nowe wartoœci do ju¿ istniej¹cych w tabeli
+
+return(tabela)}
+#wyjœciowe dane dla funkcji
+
+
+
+daneG<-UnitRoots(lgoldre)
+daneO<-UnitRoots(loilre)
+#uruchomienie i zapis wynikow funkcji
+
+plot(daneG[ ,1], main="wartoœci statystyki t w teœcie ADF dla cen z³ota")
+plot(daneO[ ,1], main="wartoœci statystyki t w teœcie ADF dla cen ropy")
+#przyk³adowy wykres dla wynikow funcji
+
+write.table(daneG,"C:/Users/Olks/Desktop/gold.txt")
+write.table(daneO,"C:/Users/Olks/Desktop/oil.txt")
+#zapis wynikow do pliku
+
+
+#-------------------------------------------------------------------
+
+
+CoinEq <- function(w,n,m) {
+#COINtegration EQuation dla szeregów "w" i "n"
+#skróconych o "m" miesiêcy
+
+n0<-n[(m+1):length(n)]         
+w0<-w[(m+1):length(w)]
+#skracanie
+			
+regresja<-lm(w0~n0)
+#regresja prosta
+
+mnoznik<-summary(regresja)$coef[2,1]
+#"mnoznik" to wspó³czynnik kierunkowy
+
+reszty<-resid(regresja)
+tADFreszt<-UnitRoot(reszty,0)[ ,1]
+#t-stat dla reszt regresji do po¿niejszej oceny wart. kryt
+
+tabela<-data.frame(b=mnoznik, Treszt=cr,size=(length(n)-m))
+return(tabela) }
+#wyjœciowe dane dla funkcji
+
+
+
+
+CoinEqs<-function(n,m) {			 
+#n,m-szeregi czasowe
+
+a<-CoinEq(n,m,0)		 
+#pierwsze liczenie przed pêtl¹
+
+tabela<-data.frame(a)	 
+#data.frame musi byc stworzona przed pêtl¹
+
+for(p in 1:32){
+q<-12*p		
+#skracamy 32 razy o 12 miesiêcy
+#¿eby nie by³o a¿ tak du¿o danych jak co miesi¹c
+
+b<-CoinEq(n,m,q) 	
+#liczy nowe wartoœci i zapisuje do macirzy b
+
+tabela<-rbind(tabela,b)} 
+#dopisuje nowe wartoœci do ju¿ istniej¹cych w tabeli
+
+return(tabela)}			 
+#wyjœciowe dane dla funkcji
+
+#aby wyliczyæ poprawne wartoœci t-stat w ADF reszt równania kointegruj¹cego
+#nale¿y w UnitRoot uzunaæ z regresji t-ternd i dopisac "-1" -bez wyrazu wolengo
+#oraz zmienic indeksy z [3,3] na [1,3], aby bylo: summary(regresja)@coef[1,3] 
+#------------------------------------------------------------------
+
+
+
+bic <- function(n,m) {     
+#liczy kryterium informacyjne Schwarza (BIC)
+#dla szeregu z trendem i czterema opóŸnieniami
+
+if( m>3 ){m<-(m-3)} else {m<-0}	
+n0<-n[(m+6):length(n)]         
+n1<-n[(m+5):(length(n)-1)]	
+n2<-n[(m+4):(length(n)-2)]    
+n3<-n[(m+3):(length(n)-3)]
+n4<-n[(m+2):(length(n)-4)]
+n5<-n[(m+1):(length(n)-5)]
+dn <-(n0-n1)			
+dn2<-(n1-n2)			
+dn3<-(n2-n3)
+dn4<-(n3-n4)
+dn5<-(n3-n5)
+t<-c(1:length(dn))		
+regresja<-lm(dn~t+n1+dn2+dn3+dn4+dn5)
+bic<-BIC(regresja)
+return(data.frame(BIC=bic, size=(length(n)-(4+m)),lags=3))}
+
+
+bics<-function(n) {			
+#n-szereg czasowy
+
+a<-bic(n,0)	
+#pierwsze liczenie przed pêtl¹
+
+tabela<-data.frame(a)	 
+#data.frame musi byc stworzona przed pêtl¹
+
+for(p in 1:32){
+q<-12*p		
+#skracamy 32 razy o 12 miesiêcy
+#¿eby nie by³o a¿ tak du¿o danych jak co miesi¹c
+
+b<-UnitRoot(n,q) 	
+#liczy nowe wartoœci i zapisuje do macirzy b
+
+tabela<-rbind(tabela,b)} 
+#dopisuje nowe wartoœci do ju¿ istniej¹cych w tabeli
+
+return(tabela)}
+#wyjœciowe dane dla funkcji
+
+
+
+a<-bics(lgoldre)
+b<-bics(loilre)
+bicG4t<-ts(a[ ,1])
+bicO4t<-ts(b[ ,1])
+bic4t<-data.frame(gold4t=bicG4t,oil4t=bicO4t)
+
+#BIC dla modeli z mniejsza liczba opoznien czy bez trendu
+#liczymy kasujac tylko w regresji kolejne opoznienia czy trend
+#i powtarzajac procedure
+#tak mozna utworzyc szeregi bic4 - bez trendu i polaczyc z bic4t
+
+bic4tnt<-cbind(bic4,bic4t)
+write.table(bic4,"C:/Users/Olks/Desktop/bic4.txt")
+
